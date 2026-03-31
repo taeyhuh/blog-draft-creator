@@ -768,7 +768,7 @@
     async function signInWithGoogle() {
       await sb.auth.signInWithOAuth({
         provider: 'google',
-        options: { redirectTo: window.location.href }
+        options: { redirectTo: 'https://blog-draft-creator.vercel.app' }
       });
     }
 
