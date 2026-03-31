@@ -802,6 +802,12 @@
             writing_preferences: document.getElementById('writing-prefs-input').value
           })
         });
+        const btn = document.querySelector('button[onclick="saveProfile()"]');
+        if (btn) {
+          const orig = btn.textContent;
+          btn.textContent = 'Saved!';
+          setTimeout(() => { btn.textContent = orig; }, 2000);
+        }
       } catch (e) { console.warn('saveProfile failed:', e); }
     }
 
@@ -1165,6 +1171,8 @@
       const params = new URLSearchParams({ topic });
       const styleGuide = document.getElementById('style-guide-input')?.value.trim();
       if (styleGuide) params.set('styleGuide', styleGuide);
+      const writingPrefs = document.getElementById('writing-prefs-input')?.value.trim();
+      if (writingPrefs) params.set('writingPrefs', writingPrefs);
       if (currentSession?.access_token) params.set('token', currentSession.access_token);
 
       const es = new EventSource(`${API_BASE}/generate?${params.toString()}`);
