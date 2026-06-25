@@ -1,0 +1,424 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Blog Draft Creator — Admin</title>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --bg: #f0f4ee; --surface: #f8faf7; --surface2: #e8f0e5;
+      --border: #c9d9c5; --accent: #8b5e3c; --accent-hover: #7a4f2f;
+      --text: #2d1a0e; --text-dim: #8c7060; --green: #4a7c59;
+      --green-dim: rgba(74,124,89,0.12); --radius: 12px;
+    }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+      background: var(--bg); color: var(--text);
+      min-height: 100vh; padding: 32px 20px 80px;
+      max-width: 1000px; margin: 0 auto;
+    }
+    h1 { font-family: Georgia, serif; font-size: 1.5rem; margin-bottom: 4px; }
+    h1 span { color: var(--accent); }
+    .subtitle { color: var(--text-dim); font-size: 0.85rem; margin-bottom: 32px; }
+    .card {
+      background: var(--surface); border: 1px solid var(--border);
+      border-radius: var(--radius); padding: 24px; margin-bottom: 24px;
+    }
+    .card-title {
+      font-size: 0.72rem; font-weight: 700; text-transform: uppercase;
+      letter-spacing: 1px; color: var(--green); margin-bottom: 16px;
+    }
+    /* Metrics row */
+    .metrics { display: flex; gap: 12px; flex-wrap: wrap; }
+    .metric {
+      flex: 1; min-width: 110px; background: var(--surface2);
+      border: 1px solid var(--border); border-radius: 10px;
+      padding: 16px; text-align: center;
+    }
+    .metric-value { font-size: 2rem; font-weight: 700; color: var(--accent); }
+    .metric-label { font-size: 0.75rem; color: var(--text-dim); margin-top: 4px; }
+    /* Tables */
+    table { width: 100%; border-collapse: collapse; font-size: 0.85rem; }
+    th { text-align: left; font-size: 0.72rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; color: var(--text-dim); padding: 8px 10px; border-bottom: 1px solid var(--border); }
+    td { padding: 10px; border-bottom: 1px solid var(--surface2); vertical-align: middle; }
+    tr:last-child td { border-bottom: none; }
+    tr:hover td { background: var(--surface2); }
+    .badge {
+      display: inline-block; padding: 2px 8px; border-radius: 20px;
+      font-size: 0.72rem; font-weight: 600;
+    }
+    .badge-trial { background: var(--green-dim); color: var(--green); }
+    .badge-paid { background: rgba(139,94,60,0.12); color: var(--accent); }
+    .badge-exhausted { background: rgba(200,0,0,0.08); color: #c00; }
+    /* Buttons */
+    .btn {
+      border: none; border-radius: 8px; padding: 7px 14px;
+      font-size: 0.8rem; font-weight: 600; cursor: pointer; transition: opacity 0.15s;
+    }
+    .btn:hover { opacity: 0.85; }
+    .btn:disabled { opacity: 0.4; cursor: default; }
+    .btn-primary { background: var(--accent); color: #fff; }
+    .btn-sm { padding: 5px 10px; font-size: 0.75rem; }
+    .btn-outline { background: none; border: 1px solid var(--border); color: var(--text-dim); }
+    .btn-outline:hover { border-color: var(--accent); color: var(--accent); }
+    /* Form */
+    input, select {
+      border: 1px solid var(--border); border-radius: 8px;
+      padding: 8px 12px; font-size: 0.88rem; outline: none;
+      background: var(--surface2); color: var(--text); width: 100%;
+    }
+    input:focus { border-color: var(--accent); }
+    .form-row { display: flex; gap: 10px; align-items: flex-end; flex-wrap: wrap; }
+    .form-group { display: flex; flex-direction: column; gap: 4px; flex: 1; min-width: 140px; }
+    label { font-size: 0.78rem; color: var(--text-dim); font-weight: 500; }
+    /* Magic link output */
+    .magic-link-output {
+      background: var(--surface2); border: 1px solid var(--border);
+      border-radius: 8px; padding: 12px; margin-top: 12px;
+      font-size: 0.82rem; word-break: break-all;
+      display: none;
+    }
+    .magic-link-output strong { color: var(--green); }
+    /* Login overlay */
+    #login-overlay {
+      position: fixed; inset: 0; background: var(--bg);
+      display: flex; align-items: center; justify-content: center;
+      z-index: 999;
+    }
+    .login-box {
+      background: var(--surface); border: 1px solid var(--border);
+      border-radius: var(--radius); padding: 40px; text-align: center;
+      max-width: 360px; width: 100%;
+    }
+    .login-box h2 { font-family: Georgia, serif; margin-bottom: 8px; }
+    .login-box p { color: var(--text-dim); font-size: 0.88rem; margin-bottom: 24px; }
+    .google-btn {
+      display: inline-flex; align-items: center; gap: 10px;
+      padding: 11px 20px; background: var(--surface); border: 1.5px solid var(--border);
+      border-radius: 10px; font-size: 0.9rem; font-weight: 600;
+      color: var(--text); cursor: pointer; width: 100%; justify-content: center;
+    }
+    .google-btn:hover { border-color: var(--accent); }
+    /* Denied overlay */
+    #denied-overlay {
+      position: fixed; inset: 0; background: var(--bg);
+      display: none; align-items: center; justify-content: center; z-index: 999;
+    }
+    .toast {
+      position: fixed; bottom: 24px; right: 24px;
+      background: var(--green); color: #fff; border-radius: 8px;
+      padding: 10px 18px; font-size: 0.85rem; font-weight: 600;
+      opacity: 0; transition: opacity 0.3s; pointer-events: none;
+    }
+    .toast.show { opacity: 1; }
+    /* Sign out */
+    .topbar { display: flex; justify-content: space-between; align-items: center; margin-bottom: 28px; }
+    .empty-state { color: var(--text-dim); font-size: 0.85rem; text-align: center; padding: 20px; }
+  </style>
+</head>
+<body>
+
+  <!-- Login overlay -->
+  <div id="login-overlay">
+    <div class="login-box">
+      <h2>Admin</h2>
+      <p>Sign in with your owner Google account to access the dashboard.</p>
+      <button class="google-btn" onclick="adminSignIn()">
+        <svg width="18" height="18" viewBox="0 0 24 24"><path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/><path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/><path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l3.66-2.84z"/><path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"/></svg>
+        Sign in with Google
+      </button>
+    </div>
+  </div>
+
+  <!-- Access denied overlay -->
+  <div id="denied-overlay">
+    <div class="login-box">
+      <h2>Not authorized</h2>
+      <p>This page is only accessible to the owner account.</p>
+      <button class="google-btn" onclick="adminSignOut()">Sign out</button>
+    </div>
+  </div>
+
+  <!-- Toast notification -->
+  <div id="toast" class="toast"></div>
+
+  <!-- Main content (hidden until authenticated as owner) -->
+  <div id="admin-content" style="display:none;">
+    <div class="topbar">
+      <div>
+        <h1>Blog Draft Creator <span>Admin</span></h1>
+        <div class="subtitle" id="owner-email-label"></div>
+      </div>
+      <button class="btn btn-outline btn-sm" onclick="adminSignOut()">Sign out</button>
+    </div>
+
+    <!-- Funnel metrics -->
+    <div class="card">
+      <div class="card-title">Funnel Overview</div>
+      <div class="metrics" id="metrics-row">
+        <div class="metric"><div class="metric-value" id="m-total">—</div><div class="metric-label">Total users</div></div>
+        <div class="metric"><div class="metric-value" id="m-active">—</div><div class="metric-label">Active trials</div></div>
+        <div class="metric"><div class="metric-value" id="m-exhausted" style="color:#c00;">—</div><div class="metric-label">Exhausted trials</div></div>
+        <div class="metric"><div class="metric-value" id="m-leads" style="color:var(--green);">—</div><div class="metric-label">Leads captured</div></div>
+        <div class="metric"><div class="metric-value" id="m-paid">—</div><div class="metric-label">Paid users</div></div>
+      </div>
+    </div>
+
+    <!-- Leads (hot prospects) -->
+    <div class="card">
+      <div class="card-title">Leads — ready to convert</div>
+      <div id="leads-container"><div class="empty-state">Loading...</div></div>
+    </div>
+
+    <!-- Invite code generator -->
+    <div class="card">
+      <div class="card-title">Create Invite Link</div>
+      <div class="form-row">
+        <div class="form-group" style="flex:2;">
+          <label>Business name</label>
+          <input id="code-label" type="text" placeholder="e.g. Acme Corp" />
+        </div>
+        <div class="form-group">
+          <label>Team size (max accounts)</label>
+          <input id="code-max-uses" type="number" value="3" min="1" max="500" />
+        </div>
+        <div class="form-group">
+          <label>Drafts per person</label>
+          <input id="code-drafts-per-user" type="number" value="5" min="1" max="100" />
+        </div>
+        <div class="form-group" style="min-width:auto; flex:none;">
+          <label>&nbsp;</label>
+          <button class="btn btn-primary" onclick="createCode()">Generate link</button>
+        </div>
+      </div>
+      <div class="magic-link-output" id="magic-link-output">
+        <strong>Magic link ready to copy:</strong><br />
+        <span id="magic-link-text"></span>
+        <button class="btn btn-outline btn-sm" style="margin-top:8px;" onclick="copyMagicLink()">Copy</button>
+      </div>
+    </div>
+
+    <!-- Invite codes list -->
+    <div class="card">
+      <div class="card-title">Invite Codes</div>
+      <div id="codes-container"><div class="empty-state">Loading...</div></div>
+    </div>
+
+    <!-- All users -->
+    <div class="card">
+      <div class="card-title">All Users</div>
+      <div id="users-container"><div class="empty-state">Loading...</div></div>
+    </div>
+  </div>
+
+  <script>
+    const API_BASE =
+      window.location.protocol === 'file:' || window.location.hostname === 'localhost'
+        ? 'http://localhost:3000'
+        : 'https://blog-draft-backend-production.up.railway.app';
+
+    const SITE_URL =
+      window.location.protocol === 'file:' || window.location.hostname === 'localhost'
+        ? 'http://localhost:3001'
+        : 'https://blog-draft-creator.vercel.app';
+
+    const { createClient } = supabase;
+    const sb = createClient(
+      'https://swigpipjzasrjmikqlmb.supabase.co',
+      'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InN3aWdwaXBqemFzcmptaWtxbG1iIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQ3NTQ4NTgsImV4cCI6MjA5MDMzMDg1OH0.XlxuS5zi41vybv9UpY_iPFr_We2HYtvqtHl-xsDreqI'
+    );
+
+    let adminSession = null;
+
+    async function adminSignIn() {
+      await sb.auth.signInWithOAuth({
+        provider: 'google',
+        options: { redirectTo: window.location.href }
+      });
+    }
+
+    async function adminSignOut() {
+      await sb.auth.signOut();
+      location.reload();
+    }
+
+    function showToast(msg) {
+      const t = document.getElementById('toast');
+      t.textContent = msg;
+      t.classList.add('show');
+      setTimeout(() => t.classList.remove('show'), 2500);
+    }
+
+    function authHeader() {
+      return { Authorization: `Bearer ${adminSession.access_token}` };
+    }
+
+    async function loadAll() {
+      await Promise.all([loadMetrics(), loadLeads(), loadCodes(), loadUsers()]);
+    }
+
+    async function loadMetrics() {
+      try {
+        const res = await fetch(`${API_BASE}/admin/metrics`, { headers: authHeader() });
+        if (!res.ok) return;
+        const m = await res.json();
+        document.getElementById('m-total').textContent = m.totalUsers;
+        document.getElementById('m-active').textContent = m.activeTrials;
+        document.getElementById('m-exhausted').textContent = m.exhaustedTrials;
+        document.getElementById('m-leads').textContent = m.leads;
+        document.getElementById('m-paid').textContent = m.paidUsers;
+      } catch (e) { console.warn('loadMetrics failed', e); }
+    }
+
+    async function loadLeads() {
+      try {
+        const res = await fetch(`${API_BASE}/admin/leads`, { headers: authHeader() });
+        if (!res.ok) return;
+        const leads = await res.json();
+        const container = document.getElementById('leads-container');
+        if (!leads.length) { container.innerHTML = '<div class="empty-state">No leads yet.</div>'; return; }
+        container.innerHTML = `
+          <table>
+            <thead><tr><th>Company</th><th>Email</th><th>Message</th><th>Date</th><th>Action</th></tr></thead>
+            <tbody>${leads.map(l => `
+              <tr>
+                <td>${esc(l.company || '—')}</td>
+                <td>${esc(l.email)}</td>
+                <td style="max-width:200px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">${esc(l.message || '—')}</td>
+                <td style="white-space:nowrap;">${new Date(l.created_at).toLocaleDateString()}</td>
+                <td><button class="btn btn-primary btn-sm" onclick="upgradeUser('${esc(l.user_id)}', this)">Upgrade</button></td>
+              </tr>`).join('')}
+            </tbody>
+          </table>`;
+      } catch (e) { console.warn('loadLeads failed', e); }
+    }
+
+    async function loadCodes() {
+      try {
+        const res = await fetch(`${API_BASE}/admin/codes`, { headers: authHeader() });
+        if (!res.ok) return;
+        const codes = await res.json();
+        const container = document.getElementById('codes-container');
+        if (!codes.length) { container.innerHTML = '<div class="empty-state">No invite codes yet. Generate one above.</div>'; return; }
+        container.innerHTML = `
+          <table>
+            <thead><tr><th>Business</th><th>Redeemed / Max</th><th>Drafts / person</th><th>Created</th><th>Action</th></tr></thead>
+            <tbody>${codes.map(c => `
+              <tr>
+                <td>${esc(c.label || '(unlabelled)')}</td>
+                <td>${c.use_count} / ${c.max_uses}</td>
+                <td>${c.drafts_per_user}</td>
+                <td style="white-space:nowrap;">${new Date(c.created_at).toLocaleDateString()}</td>
+                <td><button class="btn btn-outline btn-sm" onclick="copyLink('${esc(c.magicLink)}')">Copy link</button></td>
+              </tr>`).join('')}
+            </tbody>
+          </table>`;
+      } catch (e) { console.warn('loadCodes failed', e); }
+    }
+
+    async function loadUsers() {
+      try {
+        const res = await fetch(`${API_BASE}/admin/users`, { headers: authHeader() });
+        if (!res.ok) return;
+        const users = await res.json();
+        const container = document.getElementById('users-container');
+        if (!users.length) { container.innerHTML = '<div class="empty-state">No users yet.</div>'; return; }
+        container.innerHTML = `
+          <table>
+            <thead><tr><th>Email</th><th>Company</th><th>Tier</th><th>Drafts used</th><th>Invite (business)</th><th>Action</th></tr></thead>
+            <tbody>${users.map(u => {
+              const tier = u.tier === 'paid'
+                ? '<span class="badge badge-paid">Paid</span>'
+                : '<span class="badge badge-trial">Trial</span>';
+              return `<tr>
+                <td>${esc(u.email || '—')}</td>
+                <td>${esc(u.company || '—')}</td>
+                <td>${tier}</td>
+                <td>${u.draftsUsed}</td>
+                <td>${esc(u.inviteLabel || '—')}</td>
+                <td>${u.tier !== 'paid' ? `<button class="btn btn-primary btn-sm" onclick="upgradeUser('${esc(u.id)}', this)">Upgrade</button>` : '✓'}</td>
+              </tr>`;
+            }).join('')}
+            </tbody>
+          </table>`;
+      } catch (e) { console.warn('loadUsers failed', e); }
+    }
+
+    async function upgradeUser(userId, btn) {
+      btn.disabled = true;
+      btn.textContent = '...';
+      try {
+        const res = await fetch(`${API_BASE}/admin/users/upgrade`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', ...authHeader() },
+          body: JSON.stringify({ userId })
+        });
+        if (res.ok) {
+          showToast('User upgraded to paid!');
+          btn.textContent = '✓ Done';
+          await loadAll();
+        } else {
+          btn.disabled = false;
+          btn.textContent = 'Upgrade';
+        }
+      } catch (e) {
+        btn.disabled = false;
+        btn.textContent = 'Upgrade';
+      }
+    }
+
+    async function createCode() {
+      const label = document.getElementById('code-label').value.trim();
+      const maxUses = parseInt(document.getElementById('code-max-uses').value) || 3;
+      const draftsPerUser = parseInt(document.getElementById('code-drafts-per-user').value) || 5;
+      try {
+        const res = await fetch(`${API_BASE}/admin/codes`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', ...authHeader() },
+          body: JSON.stringify({ label, maxUses, draftsPerUser })
+        });
+        if (!res.ok) { showToast('Failed to create code.'); return; }
+        const data = await res.json();
+        document.getElementById('magic-link-text').textContent = data.magicLink;
+        document.getElementById('magic-link-output').style.display = 'block';
+        await loadCodes();
+      } catch (e) { showToast('Error creating code.'); }
+    }
+
+    function copyMagicLink() {
+      const link = document.getElementById('magic-link-text').textContent;
+      navigator.clipboard.writeText(link).then(() => showToast('Copied!'));
+    }
+
+    function copyLink(link) {
+      navigator.clipboard.writeText(link).then(() => showToast('Copied!'));
+    }
+
+    function esc(str) {
+      return String(str ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+    }
+
+    // Auth
+    sb.auth.getSession().then(async ({ data }) => {
+      if (!data.session) { return; } // login overlay stays
+      adminSession = data.session;
+      const email = data.session.user?.email;
+      // Verify owner access via backend
+      const res = await fetch(`${API_BASE}/admin/metrics`, {
+        headers: { Authorization: `Bearer ${adminSession.access_token}` }
+      });
+      if (res.status === 401) {
+        document.getElementById('login-overlay').style.display = 'none';
+        document.getElementById('denied-overlay').style.display = 'flex';
+        return;
+      }
+      document.getElementById('login-overlay').style.display = 'none';
+      document.getElementById('admin-content').style.display = 'block';
+      document.getElementById('owner-email-label').textContent = `Signed in as ${email}`;
+      await loadAll();
+    });
+  </script>
+</body>
+</html>

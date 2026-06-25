@@ -5,6 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Blog Draft Creator</title>
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script src="https://cdn.jsdelivr.net/npm/dompurify@3/dist/purify.min.js"></script>
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
@@ -574,9 +575,44 @@
     }
     .draft-item-delete:hover { background: rgba(200,0,0,0.08); color: #c00; }
     .drafts-empty { color: var(--text-dim); font-size: 0.88rem; text-align: center; padding: 20px 0; }
+
+    /* No-invite / exhausted overlays */
+    #no-invite-screen {
+      position: fixed; inset: 0; z-index: 999;
+      background: rgba(240,244,238,0.97);
+      display: none; align-items: center; justify-content: center; flex-direction: column;
+    }
+
+    /* Trial badge */
+    #trial-badge {
+      display: none; text-align: center;
+      margin-top: 10px; font-size: 0.78rem; color: var(--text-dim);
+    }
   </style>
 </head>
 <body>
+
+  <!-- No-invite screen (signed in but no code) -->
+  <div id="no-invite-screen">
+    <div class="login-card">
+      <div class="login-icon">✦</div>
+      <h2>Invite-only access</h2>
+      <p>This tool is currently invite-only. To get access, reach out at <a href="mailto:taeyhuh@dooropenerproject.com" style="color:var(--accent);">taeyhuh@dooropenerproject.com</a></p>
+      <div style="margin-top:20px; width:100%;">
+        <p style="font-size:0.82rem; color:var(--text-dim); margin-bottom:8px;">Already have an invite code?</p>
+        <div style="display:flex; gap:8px;">
+          <input id="manual-invite-input" type="text" placeholder="Enter code..."
+            style="flex:1; border:1px solid var(--border); border-radius:8px; padding:9px 12px; font-size:0.88rem; outline:none; background:var(--surface);" />
+          <button id="redeem-btn" onclick="redeemManualCode()"
+            style="background:var(--accent); color:#fff; border:none; border-radius:8px; padding:9px 16px; font-size:0.88rem; font-weight:600; cursor:pointer; white-space:nowrap;">
+            Activate
+          </button>
+        </div>
+        <div id="invite-code-error" style="color:#c00; font-size:0.8rem; margin-top:6px;"></div>
+      </div>
+      <button onclick="signOut()" style="margin-top:16px; background:none; border:none; color:var(--text-dim); font-size:0.78rem; cursor:pointer; text-decoration:underline;">Sign out</button>
+    </div>
+  </div>
 
   <!-- Login screen (shown when not signed in) -->
   <div id="login-screen">
@@ -641,6 +677,29 @@
     </details>
     <div class="input-row">
       <button class="primary" id="generate-btn" onclick="generateDraft()">✦ Write My Draft</button>
+    </div>
+    <div id="trial-badge"></div>
+  </div>
+
+  <!-- Trial exhausted card -->
+  <div class="card" id="exhausted-section" style="display:none; text-align:center; padding:40px 28px;">
+    <div style="font-size:2rem; margin-bottom:12px;">✦</div>
+    <h2 style="font-family:Georgia,serif; font-size:1.3rem; margin-bottom:8px;">You've used your 5 free drafts</h2>
+    <p style="color:var(--text-dim); font-size:0.9rem; margin-bottom:24px;">Like what you see? Leave your details and I'll reach out about getting full access.</p>
+    <div id="lead-form">
+      <div style="display:flex; flex-direction:column; gap:12px; text-align:left; max-width:400px; margin:0 auto;">
+        <input id="lead-company" type="text" placeholder="Company name"
+          style="border:1px solid var(--border); border-radius:8px; padding:10px 12px; font-size:0.9rem; outline:none; background:var(--surface2); width:100%;" />
+        <input id="lead-email" type="email" placeholder="Your email"
+          style="border:1px solid var(--border); border-radius:8px; padding:10px 12px; font-size:0.9rem; outline:none; background:var(--surface2); width:100%;" />
+        <textarea id="lead-message" rows="3" placeholder="Anything you'd like to add? (optional)"
+          style="border:1px solid var(--border); border-radius:8px; padding:10px 12px; font-size:0.9rem; outline:none; background:var(--surface2); width:100%; resize:vertical; font-family:inherit;"></textarea>
+        <button id="lead-submit-btn" onclick="submitLead()" class="primary" style="width:100%;">Let's talk</button>
+      </div>
+    </div>
+    <div id="lead-thanks" style="display:none; margin-top:16px;">
+      <p style="color:var(--green); font-weight:600;">Got it! You'll hear from me soon.</p>
+      <p style="color:var(--text-dim); font-size:0.85rem; margin-top:8px;">Or email directly: <a href="mailto:taeyhuh@dooropenerproject.com" style="color:var(--accent);">taeyhuh@dooropenerproject.com</a></p>
     </div>
   </div>
 
@@ -741,7 +800,7 @@
 
   <script>
     const API_BASE =
-      window.location.port === '3000'
+      window.location.protocol === 'file:' || window.location.hostname === 'localhost'
         ? 'http://localhost:3000'
         : 'https://blog-draft-backend-production.up.railway.app';
 
@@ -754,18 +813,142 @@
 
     let currentUser = null;
     let currentSession = null;
+    let trialState = null;
+    let pendingInviteCode = null;
+
+    // Parse invite code from URL before anything else (survives OAuth redirect via localStorage)
+    (function () {
+      const params = new URLSearchParams(window.location.search);
+      const fromUrl = params.get('invite');
+      const fromStorage = localStorage.getItem('pendingInviteCode');
+      pendingInviteCode = fromUrl || fromStorage || null;
+      if (fromUrl) history.replaceState({}, '', window.location.pathname);
+    })();
 
     function showLogin() {
       document.getElementById('login-screen').style.display = 'flex';
       document.getElementById('sign-out-btn').style.display = 'none';
+      document.getElementById('no-invite-screen').style.display = 'none';
     }
 
-    function showApp() {
+    async function handleSession(session) {
+      currentSession = session;
+      currentUser = session?.user ?? null;
+      if (!session) { showLogin(); return; }
       document.getElementById('login-screen').style.display = 'none';
       document.getElementById('sign-out-btn').style.display = 'block';
+      await checkTrialStatus();
+    }
+
+    async function checkTrialStatus() {
+      try {
+        const res = await fetch(`${API_BASE}/auth/trial-status`, {
+          headers: { Authorization: `Bearer ${currentSession.access_token}` }
+        });
+        trialState = await res.json();
+      } catch (e) {
+        console.warn('checkTrialStatus failed:', e);
+        trialState = { status: 'no_invite' };
+      }
+      if (trialState.status === 'no_invite' && pendingInviteCode) {
+        await activateInviteCode(pendingInviteCode);
+        return;
+      }
+      routeByTrialStatus();
+    }
+
+    function routeByTrialStatus() {
+      document.getElementById('no-invite-screen').style.display = 'none';
+      document.getElementById('exhausted-section').style.display = 'none';
+      document.getElementById('input-card').style.display = '';
+      const { status } = trialState;
+      if (status === 'no_invite') {
+        document.getElementById('input-card').style.display = 'none';
+        document.getElementById('no-invite-screen').style.display = 'flex';
+      } else if (status === 'exhausted') {
+        document.getElementById('input-card').style.display = 'none';
+        document.getElementById('exhausted-section').style.display = 'block';
+        // Pre-fill email in lead form
+        const emailEl = document.getElementById('lead-email');
+        if (emailEl && currentUser?.email) emailEl.value = currentUser.email;
+        loadDrafts();
+      } else {
+        // 'active' or 'owner'
+        updateTrialBadge();
+        loadProfile();
+        loadDrafts();
+      }
+    }
+
+    function updateTrialBadge() {
+      const badge = document.getElementById('trial-badge');
+      if (!badge || !trialState || trialState.status === 'owner') { if (badge) badge.style.display = 'none'; return; }
+      if (trialState.status === 'active') {
+        badge.style.display = 'block';
+        badge.textContent = `${trialState.draftsRemaining} of ${trialState.draftsTotal} free drafts remaining`;
+      }
+    }
+
+    async function activateInviteCode(code) {
+      try {
+        const res = await fetch(`${API_BASE}/auth/redeem-invite`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${currentSession.access_token}` },
+          body: JSON.stringify({ code })
+        });
+        const data = await res.json();
+        localStorage.removeItem('pendingInviteCode');
+        pendingInviteCode = null;
+        if (!res.ok) {
+          trialState = { status: 'no_invite' };
+          routeByTrialStatus();
+          document.getElementById('invite-code-error').textContent = data.error || 'Invalid code.';
+          return;
+        }
+        trialState = data;
+        routeByTrialStatus();
+      } catch (e) {
+        console.warn('activateInviteCode failed:', e);
+        trialState = { status: 'no_invite' };
+        routeByTrialStatus();
+      }
+    }
+
+    async function redeemManualCode() {
+      const input = document.getElementById('manual-invite-input');
+      const code = input?.value?.trim();
+      if (!code) return;
+      document.getElementById('invite-code-error').textContent = '';
+      document.getElementById('redeem-btn').disabled = true;
+      await activateInviteCode(code);
+      document.getElementById('redeem-btn').disabled = false;
+    }
+
+    async function submitLead() {
+      const btn = document.getElementById('lead-submit-btn');
+      btn.disabled = true;
+      btn.textContent = 'Sending...';
+      try {
+        await fetch(`${API_BASE}/leads`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${currentSession.access_token}` },
+          body: JSON.stringify({
+            company: document.getElementById('lead-company').value.trim(),
+            email: document.getElementById('lead-email').value.trim(),
+            message: document.getElementById('lead-message').value.trim(),
+          })
+        });
+        document.getElementById('lead-form').style.display = 'none';
+        document.getElementById('lead-thanks').style.display = 'block';
+      } catch (e) {
+        btn.disabled = false;
+        btn.textContent = "Let's talk";
+        console.warn('submitLead failed:', e);
+      }
     }
 
     async function signInWithGoogle() {
+      if (pendingInviteCode) localStorage.setItem('pendingInviteCode', pendingInviteCode);
       await sb.auth.signInWithOAuth({
         provider: 'google',
         options: { redirectTo: 'https://blog-draft-creator.vercel.app' }
@@ -836,13 +1019,24 @@
         const date = new Date(d.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
         const li = document.createElement('li');
         li.className = 'draft-item';
-        li.innerHTML = `
-          <div class="draft-item-info" onclick="openDraft('${d.id}')">
-            <div class="draft-item-title">${d.topic}</div>
-            <div class="draft-item-meta">${d.word_count ? d.word_count + ' words · ' : ''}${date}</div>
-          </div>
-          <button class="draft-item-delete" onclick="deleteDraft('${d.id}', event)" title="Delete">✕</button>
-        `;
+        const info = document.createElement('div');
+        info.className = 'draft-item-info';
+        info.addEventListener('click', () => openDraft(d.id));
+        const title = document.createElement('div');
+        title.className = 'draft-item-title';
+        title.textContent = d.topic;
+        const meta = document.createElement('div');
+        meta.className = 'draft-item-meta';
+        meta.textContent = `${d.word_count ? d.word_count + ' words · ' : ''}${date}`;
+        info.appendChild(title);
+        info.appendChild(meta);
+        const deleteBtn = document.createElement('button');
+        deleteBtn.className = 'draft-item-delete';
+        deleteBtn.title = 'Delete';
+        deleteBtn.textContent = '✕';
+        deleteBtn.addEventListener('click', (e) => deleteDraft(d.id, e));
+        li.appendChild(info);
+        li.appendChild(deleteBtn);
         list.appendChild(li);
       });
       section.style.display = 'block';
@@ -874,29 +1068,8 @@
     }
 
     // Check auth state on load
-    sb.auth.getSession().then(({ data }) => {
-      if (data.session) {
-        currentSession = data.session;
-        currentUser = data.session.user;
-        showApp();
-        loadProfile();
-        loadDrafts();
-      } else {
-        showLogin();
-      }
-    });
-
-    sb.auth.onAuthStateChange((event, session) => {
-      currentSession = session;
-      currentUser = session?.user ?? null;
-      if (session) {
-        showApp();
-        loadProfile();
-        loadDrafts();
-      } else {
-        showLogin();
-      }
-    });
+    sb.auth.getSession().then(({ data }) => handleSession(data.session));
+    sb.auth.onAuthStateChange((event, session) => handleSession(session));
 
     const STEP_MAP = {
       connecting: 0,
@@ -970,7 +1143,7 @@
       toggleBtn.classList.remove('active');
       if (toggleBtn.querySelector('svg')) toggleBtn.querySelector('svg').style.opacity = '';
 
-      editor.innerHTML = markdownToHtml(text);
+      editor.innerHTML = DOMPurify.sanitize(markdownToHtml(text));
 
       document.getElementById('draft-section').style.display = 'block';
       updateWordCount();
@@ -1168,12 +1341,29 @@
       activateStep(0);
       startElapsedTimer();
 
-      const params = new URLSearchParams({ topic });
+      // Exchange the full JWT for a short-lived SSE token so the real token
+      // never appears in a URL (browser history, server logs, CDN logs).
+      let sseToken;
+      try {
+        const tokenRes = await fetch(`${API_BASE}/auth/sse-token`, {
+          method: 'POST',
+          headers: { Authorization: `Bearer ${currentSession?.access_token}` }
+        });
+        if (!tokenRes.ok) throw new Error('auth failed');
+        const tokenData = await tokenRes.json();
+        sseToken = tokenData.token;
+      } catch (e) {
+        document.getElementById('progress-section').style.display = 'none';
+        showError('Could not authenticate. Please sign out and sign back in.', 'Authentication error');
+        document.getElementById('generate-btn').disabled = false;
+        return;
+      }
+
+      const params = new URLSearchParams({ topic, token: sseToken });
       const styleGuide = document.getElementById('style-guide-input')?.value.trim();
       if (styleGuide) params.set('styleGuide', styleGuide);
       const writingPrefs = document.getElementById('writing-prefs-input')?.value.trim();
       if (writingPrefs) params.set('writingPrefs', writingPrefs);
-      if (currentSession?.access_token) params.set('token', currentSession.access_token);
 
       const es = new EventSource(`${API_BASE}/generate?${params.toString()}`);
       activeEventSource = es;
@@ -1194,6 +1384,16 @@
         stopProgressSimulation(true);
         setTimeout(() => renderDraft(data.draft), 800);
         setTimeout(() => loadDrafts(), 1500);
+        // Refresh trial badge after draft is saved
+        setTimeout(async () => {
+          try {
+            const r = await fetch(`${API_BASE}/auth/trial-status`, {
+              headers: { Authorization: `Bearer ${currentSession?.access_token}` }
+            });
+            trialState = await r.json();
+            updateTrialBadge();
+          } catch (e) {}
+        }, 2000);
       });
 
       es.addEventListener('error_event', (e) => {
