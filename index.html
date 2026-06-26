@@ -899,10 +899,11 @@
         const data = await res.json();
         localStorage.removeItem('pendingInviteCode');
         pendingInviteCode = null;
-        if (!res.ok) {
+        if (!res.ok || data.status === 'no_invite') {
           trialState = { status: 'no_invite' };
           routeByTrialStatus();
-          document.getElementById('invite-code-error').textContent = data.error || 'Invalid code.';
+          document.getElementById('invite-code-error').textContent =
+            data.error || (data.status === 'no_invite' ? 'Could not activate code. Please try again.' : 'Invalid code.');
           return;
         }
         trialState = data;
@@ -916,7 +917,12 @@
 
     async function redeemManualCode() {
       const input = document.getElementById('manual-invite-input');
-      const code = input?.value?.trim();
+      let code = input?.value?.trim();
+      try {
+        const url = new URL(code);
+        const fromUrl = url.searchParams.get('invite');
+        if (fromUrl) code = fromUrl;
+      } catch (e) { /* not a URL, use as-is */ }
       if (!code) return;
       document.getElementById('invite-code-error').textContent = '';
       document.getElementById('redeem-btn').disabled = true;
